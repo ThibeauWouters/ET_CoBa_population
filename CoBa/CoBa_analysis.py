@@ -1,106 +1,95 @@
 import numpy as np 
+import tqdm
 import matplotlib.pyplot as plt
-import h5py
-import copy
 
 import bilby
 
-# The population files -- use the uniform masses for now
-BBH_pop_filename = "./18321_1yrCatalogBBH.h5"
-BNS_pop_filename = "./18321_1yrCatalogBNS.h5"
-BNS_gauss_pop_filename = "./18321_1yrCatalogBNSmassGauss.h5"
-FILENAMES_DICT = {"BBH": BBH_pop_filename, 
-                  "BNS": BNS_pop_filename, 
-                  "BNS_gauss": BNS_gauss_pop_filename}
+import utils
 
-# Parameters that are in these files
-ALL_BBH_KEYS = ['Mc', 'Phicoal', 'chi1', 'chi1x', 'chi1y', 'chi1z', 'chi2', 'chi2x', 'chi2y', 'chi2z', 'dL', 'dec', 'eta', 'iota', 'm1_source', 'm2_source', 'phi', 'phi12', 'phiJL', 'psi', 'ra', 'tGPS', 'tcoal', 'theta', 'thetaJN', 'tilt1', 'tilt2', 'z']
-ALL_BNS_KEYS = copy.deepcopy(ALL_BBH_KEYS)
-ALL_BNS_KEYS += ["Lambda1", "Lambda2"]
+# Get the catalog to show
+bbh_catalog = utils.CoBa_events_dict["BBH"]
 
-ALL_KEYS_DICT = {"BBH": ALL_BBH_KEYS, 
-                 "BNS": ALL_BNS_KEYS, 
-                 "BNS_gauss": ALL_BNS_KEYS}
+F_SAMPLING = 4096.0
+F_MIN = 20.0
 
-def translate_for_bilby(params: dict):
+def inject_and_get_SNR(parameters: dict, 
+                       f_min: float = F_MIN,
+                       f_sampling: float = F_SAMPLING,
+                       disable_transverse_spins: bool = True) -> dict:
     """
-    Translate some of the parameter names from the CoBa catalogue study to the bilby parameter names.
+    Inject a signal into the detectors and return the SNR.
+
+    Args:
+        parameters (dict): The parameters of the signal to be injected.
+        duration (float): Duration of the signal.
     """
+    if disable_transverse_spins:
+        parameters = utils.disable_transverse_spins(parameters)
+        approximant_str = "IMRPhenomD"
+    else:
+        approximant_str = "IMRPhenomPv2"
     
-    # Masses
-    params["mass_1"] = params["m1_source"]
-    params["mass_2"] = params["m2_source"]
+    # print("parameters")
+    # print(parameters)
     
-    # Spins
-    params["a_1"] = params["chi1"]
-    params["a_2"] = params["chi2"]
-    params["tilt_1"] = params["tilt1"]
-    params["tilt_2"] = params["tilt2"]
+    duration = bilby.gw.utils.calculate_time_to_merger(
+            f_min,
+            parameters['mass_1'],
+            parameters['mass_2'],
+            safety = 1.2)
     
-    # Extrinsic parameters
-    params["luminosity_distance"] = params["dL"] * 1000.0 # from Gpc to Mpc
-    params["theta_jn"] = params["thetaJN"]
-    params["phase"] = params["phi"]
-    params["geocent_time"] = params["tGPS"]
+    # Round to nearest above power of 2, making sure at least 4 seconds are used
+    duration = np.ceil(duration + 4.0)
     
-    return params
+    waveform_arguments = {
+        "waveform_approximant": approximant_str,
+        "reference_frequency": f_min,
+        "minimum_frequency": f_min,
+        "maximum_frequency": 0.5 * f_sampling,
+    }
 
-CoBa_events_dict = {}
-CoBa_events_dict["BBH"] = {}
-CoBa_events_dict["BNS"] = {}
+    waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
+        duration=duration,
+        sampling_frequency=f_sampling,
+        frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
+        parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
+        waveform_arguments=waveform_arguments
+    )
 
-# Initialize the dicts with the keys
-print("Loading the CoBa catalogs...")
-for pop_str in ["BBH", "BNS"]:
-    for key in ALL_KEYS_DICT[pop_str]:
-        CoBa_events_dict[pop_str][key] = []
-
-for pop_str in ["BBH", "BNS"]:
-    filename = FILENAMES_DICT[pop_str]
-    with h5py.File(filename, "r") as file:
-        for key in file.keys():
-            CoBa_events_dict[pop_str][key] = np.array(file[key])
-print("Loading the CoBa catalogs... DONE")
-
-def get_CoBa_event(pop_str: str, idx: int):
-    """
-    Get a specific event from one of the CoBa catalogs
-    """            
-    example_signal = {}
-    for key in CoBa_events_dict[pop_str].keys():
-        example_signal[key] = CoBa_events_dict[pop_str][key][idx]
+    # Define the ET and CE detectors
+    ifos = bilby.gw.detector.InterferometerList(["ET", "CE"])
+    for ifo in ifos:
+        ifo.minimum_frequency = f_min
+        ifo.maximum_frequency = 0.5 * f_sampling
+    
+    start_time = parameters['geocent_time'] - duration + 2.0
+    ifos.set_strain_data_from_power_spectral_densities(
+        sampling_frequency=f_sampling,
+        duration=duration, 
+        start_time=start_time
+        )
+    ifos.inject_signal(waveform_generator=waveform_generator, parameters=parameters)
+    
+    # Now fetch the SNR:
+    snr_dict = {}
+    for ifo in ifos:
+        snr = ifo.meta_data['optimal_SNR']
+        snr_dict[ifo.name] = snr
         
-    return example_signal
+    # For ET, save the network SNR of the 3 ifos
+    snr_dict["ET"] = np.sqrt(snr_dict["ET1"]**2 + snr_dict["ET2"]**2 + snr_dict["ET3"]**2)
+    return snr_dict
 
-example_signal = get_CoBa_event("BBH", 1)
-example_signal = translate_for_bilby(example_signal)
-print(f"Example BBH signal: {example_signal}")
-
-f_sampling = 4096.0
-f_min = 20.0
-duration = 24.0
-
-waveform_arguments = {
-    "waveform_approximant": "IMRPhenomPv2",
-    "reference_frequency": f_min,
-    "minimum_frequency": f_min
-}
-
-waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
-    duration=duration,
-    sampling_frequency=f_sampling,
-    frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
-    parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
-    waveform_arguments=waveform_arguments
-)
-
-# Define the ET and CE detectors
-ifos = bilby.gw.detector.InterferometerList(["ET", "CE"])
-
-start_time = example_signal['tGPS'] - duration + 2
-
-ifos.set_strain_data_from_power_spectral_densities(
-    sampling_frequency=f_sampling,
-    duration=duration, 
-    start_time=start_time)
-ifos.inject_signal(waveform_generator=waveform_generator, parameters=example_signal)
+# Loop over the events, make bilby silent from here on
+bilby.core.utils.logger.setLevel("ERROR")
+for idx in tqdm.tqdm(range(609, 610)):
+    event = utils.get_CoBa_event("BBH", idx)
+    event = utils.translate_CoBa_to_bilby(event)
+    
+    print("event")
+    print(event)
+    
+    snr_dict = inject_and_get_SNR(event)
+    
+    if idx > 1_000:
+        break
