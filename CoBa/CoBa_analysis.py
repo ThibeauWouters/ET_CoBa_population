@@ -23,7 +23,9 @@ ALL_KEYS_DICT = {"BBH": ALL_BBH_KEYS,
                  "BNS_gauss": ALL_BNS_KEYS}
 
 def translate_for_bilby(params: dict):
-    """Simply add the required key names for bilby"""
+    """
+    Translate some of the parameter names from the CoBa catalogue study to the bilby parameter names.
+    """
     
     # Masses
     params["mass_1"] = params["m1_source"]
@@ -67,6 +69,8 @@ def get_CoBa_event(pop_str: str, idx: int):
     example_signal = {}
     for key in CoBa_events_dict[pop_str].keys():
         example_signal[key] = CoBa_events_dict[pop_str][key][idx]
+        
+    return example_signal
 
 example_signal = get_CoBa_event("BBH", 1)
 example_signal = translate_for_bilby(example_signal)
