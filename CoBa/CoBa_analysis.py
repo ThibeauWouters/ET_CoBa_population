@@ -1,95 +1,41 @@
 import numpy as np 
 import tqdm
 import matplotlib.pyplot as plt
-
 import bilby
-
 import utils
+import json
 
-# Get the catalog to show
-bbh_catalog = utils.CoBa_events_dict["BBH"]
-
-F_SAMPLING = 4096.0
-F_MIN = 20.0
-
-def inject_and_get_SNR(parameters: dict, 
-                       f_min: float = F_MIN,
-                       f_sampling: float = F_SAMPLING,
-                       disable_transverse_spins: bool = True) -> dict:
-    """
-    Inject a signal into the detectors and return the SNR.
-
-    Args:
-        parameters (dict): The parameters of the signal to be injected.
-        duration (float): Duration of the signal.
-    """
-    if disable_transverse_spins:
-        parameters = utils.disable_transverse_spins(parameters)
-        approximant_str = "IMRPhenomD"
-    else:
-        approximant_str = "IMRPhenomPv2"
-    
-    # print("parameters")
-    # print(parameters)
-    
-    duration = bilby.gw.utils.calculate_time_to_merger(
-            f_min,
-            parameters['mass_1'],
-            parameters['mass_2'],
-            safety = 1.2)
-    
-    # Round to nearest above power of 2, making sure at least 4 seconds are used
-    duration = np.ceil(duration + 4.0)
-    
-    waveform_arguments = {
-        "waveform_approximant": approximant_str,
-        "reference_frequency": f_min,
-        "minimum_frequency": f_min,
-        "maximum_frequency": 0.5 * f_sampling,
-    }
-
-    waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
-        duration=duration,
-        sampling_frequency=f_sampling,
-        frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
-        parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
-        waveform_arguments=waveform_arguments
-    )
-
-    # Define the ET and CE detectors
-    ifos = bilby.gw.detector.InterferometerList(["ET", "CE"])
-    for ifo in ifos:
-        ifo.minimum_frequency = f_min
-        ifo.maximum_frequency = 0.5 * f_sampling
-    
-    start_time = parameters['geocent_time'] - duration + 2.0
-    ifos.set_strain_data_from_power_spectral_densities(
-        sampling_frequency=f_sampling,
-        duration=duration, 
-        start_time=start_time
-        )
-    ifos.inject_signal(waveform_generator=waveform_generator, parameters=parameters)
-    
-    # Now fetch the SNR:
-    snr_dict = {}
-    for ifo in ifos:
-        snr = ifo.meta_data['optimal_SNR']
-        snr_dict[ifo.name] = snr
-        
-    # For ET, save the network SNR of the 3 ifos
-    snr_dict["ET"] = np.sqrt(snr_dict["ET1"]**2 + snr_dict["ET2"]**2 + snr_dict["ET3"]**2)
-    return snr_dict
-
-# Loop over the events, make bilby silent from here on
+# Make bilby silent, otherwise will print for each injected signal
 bilby.core.utils.logger.setLevel("ERROR")
-for idx in tqdm.tqdm(range(609, 610)):
-    event = utils.get_CoBa_event("BBH", idx)
-    event = utils.translate_CoBa_to_bilby(event)
+
+for pop_str in ["BBH"]: # ["BBH", "BNS"]
     
-    print("event")
-    print(event)
+    # Will store the SNR in this dict for the entire population, then add it to the catalogue at the end
+    all_snr_dict = {"ET1": [], "ET2": [], "ET3": [], "ET": [], "CE": []}
+    is_tidal = pop_str == "BNS"
+    if pop_str == "BBH":
+        N = utils.N_BBH_COBA
+    else:
+        N = utils.N_BNS_COBA
     
-    snr_dict = inject_and_get_SNR(event)
+    for idx in tqdm.tqdm(range(N)):
+        event = utils.get_CoBa_event("BNS", idx)
+        event = utils.translate_CoBa_to_bilby(event)
+        snr_dict = utils.inject_and_get_SNR(event)
+        
+        # Add the SNR to the complete list
+        all_snr_dict["ET1"].append(snr_dict["ET1"])
+        all_snr_dict["ET2"].append(snr_dict["ET2"])
+        all_snr_dict["ET3"].append(snr_dict["ET3"])
+        all_snr_dict["ET"].append(snr_dict["ET"])
+        all_snr_dict["CE"].append(snr_dict["CE"])
+        
+    # Add the SNR to the CoBa catalogue
+    utils.CoBa_events_dict[pop_str]["ET1_SNR"] = all_snr_dict["ET1"]
+    utils.CoBa_events_dict[pop_str]["ET2_SNR"] = all_snr_dict["ET2"]
+    utils.CoBa_events_dict[pop_str]["ET3_SNR"] = all_snr_dict["ET3"]
+    utils.CoBa_events_dict[pop_str]["CE"] = all_snr_dict["CE"]
     
-    if idx > 1_000:
-        break
+    # Save it as JSON:
+    with open(f"CoBa_events_{pop_str}.json", "w") as f:
+        json.dump(utils.CoBa_events_dict, f, indent = 4)
