@@ -130,52 +130,9 @@ def make_snr_histograms(snr_cutoff: float,
         
     print("DONE")
     
-def investigate_mass_distributions():
-    """
-    Just a short investigation that shows that the mass distribution is sampled uniformly in the triangle m1>m2.
-    Note: this is actually in the README of (ET-0084A-23) -- still good sanity check
-    """
-    
-    catalog = BNS_CATALOG
-    
-    # Get the samples
-    mass_1 = np.array(catalog["m1_source"])
-    mass_2 = np.array(catalog["m2_source"])
-    mass_samples = np.vstack([mass_1, mass_2]).T
-    
-    corner_kwargs = copy.deepcopy(default_corner_kwargs)
-    hist_kwargs = {"density": True,
-                   "color": "blue"
-                }
-    
-    # Make the first cornerplot
-    corner_kwargs["hist_kwargs"] = hist_kwargs
-    fig = corner.corner(mass_samples, labels=["Mass 1", "Mass 2"], **corner_kwargs)
-    
-    # Sample the masses uniformly
-    m1_tmp = np.random.uniform(1.1, 2.5, size=len(mass_1))
-    m2_tmp = np.random.uniform(1.1, 2.5, size=len(mass_2))
-    
-    m1 = np.where(m1_tmp > m2_tmp, m1_tmp, m2_tmp)
-    m2 = np.where(m1_tmp > m2_tmp, m2_tmp, m1_tmp)
-    
-    mass_samples = np.vstack([m1, m2]).T
-    hist_kwargs["color"] = "red"
-    corner_kwargs["hist_kwargs"] = hist_kwargs
-    corner_kwargs["color"] = "red"
-    
-    corner.corner(mass_samples, labels=["Mass 1", "Mass 2"], fig = fig, **corner_kwargs)
-    
-    # Second cornerplot
-    hist_kwargs
-    corner_kwargs["hist_kwargs"] = hist_kwargs
-    plt.savefig(f"./figures/mass_cornerplot_BNS.png")
-    plt.close()
-        
-    
 def main():
     # make_snr_histograms(snr_cutoff=100)
-    investigate_mass_distributions()
+    pass
     
 if __name__ == "__main__":
     main()
