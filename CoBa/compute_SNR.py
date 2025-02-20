@@ -29,8 +29,19 @@ for pop_str in ["BBH", "BNS"]:
     for idx in tqdm.tqdm(range(N)):
         event = utils.get_CoBa_event(pop_str, idx)
         event = utils.translate_CoBa_to_bilby(event)
-        snr_dict = utils.inject_and_get_SNR(event, f_min=20.0, f_sampling=4096.0, is_tidal=is_tidal)
-        
+        try: 
+            snr_dict = utils.inject_and_get_SNR(event, f_min=20.0, f_sampling=4096.0, is_tidal=is_tidal)
+        except Exception as e:
+            # We had input domain error for some of them, at least expected for BBH idx=7374 in tqdm
+            # FIXME: take some notes here on how often this happens in the end
+            print(f"Error for event {idx}: {e}")
+            
+            print(f"Now showing the event parameters")
+            print(event)
+            
+            print("Setting all the SNR to be negative for this event")
+            snr_dict = {key: -1.0 for key in all_snr_dict.keys()}
+            
         # Add the SNR to the complete list
         for key in list(all_snr_dict.keys()):
             all_snr_dict[key][idx] = snr_dict[key]
