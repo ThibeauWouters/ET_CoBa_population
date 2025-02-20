@@ -21,14 +21,14 @@ for pop_str in ["BBH", "BNS"]:
     is_tidal = pop_str == "BNS"
     
     # We will store the SNR in this dict for the entire population, then add it to the catalogue at the end
-    all_snr_dict = {"ET1": np.zeros(N), 
-                    "ET2": np.zeros(N), 
-                    "ET3": np.zeros(N), 
-                    "ET": np.zeros(N), 
+    all_snr_dict = {"ET1": np.zeros(N),
+                    "ET2": np.zeros(N),
+                    "ET3": np.zeros(N),
+                    "ET": np.zeros(N),
                     "CE": np.zeros(N)}
     
     for idx in tqdm.tqdm(range(N)):
-        event = utils.get_CoBa_event("BNS", idx)
+        event = utils.get_CoBa_event(pop_str, idx)
         event = utils.translate_CoBa_to_bilby(event)
         snr_dict = utils.inject_and_get_SNR(event)
         
