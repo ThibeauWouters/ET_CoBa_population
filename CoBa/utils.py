@@ -8,9 +8,6 @@ import bilby
 ### CONSTANTS ###
 #################
 
-F_SAMPLING = 4096.0
-F_MIN = 20.0
-
 # Population files -- we use the uniform masses for BNS for now, ignore Gaussian
 BBH_POP_FILENAME = "./18321_1yrCatalogBBH.h5"
 BNS_POP_FILENAME = "./18321_1yrCatalogBNS.h5"
@@ -155,8 +152,8 @@ def get_CoBa_event(pop_str: str, idx: int) -> dict:
 
 
 def inject_and_get_SNR(parameters: dict, 
-                       f_min: float = F_MIN,
-                       f_sampling: float = F_SAMPLING,
+                       f_min: float = 20.0,
+                       f_sampling: float = 4096.0,
                        use_transverse_spins: bool = False,
                        is_tidal: bool = False) -> dict:
     """

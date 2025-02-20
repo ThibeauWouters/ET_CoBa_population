@@ -14,11 +14,10 @@ for pop_str in ["BBH", "BNS"]:
     # Get the correct number of events to loop over
     if pop_str == "BBH":
         N = utils.N_BBH_COBA
+        is_tidal = False
     else:
         N = utils.N_BNS_COBA
-    
-    # Toggle tidal effects to be added if we are looking at BNS
-    is_tidal = pop_str == "BNS"
+        is_tidal = True
     
     # We will store the SNR in this dict for the entire population, then add it to the catalogue at the end
     all_snr_dict = {"ET1": np.zeros(N),
@@ -30,7 +29,7 @@ for pop_str in ["BBH", "BNS"]:
     for idx in tqdm.tqdm(range(N)):
         event = utils.get_CoBa_event(pop_str, idx)
         event = utils.translate_CoBa_to_bilby(event)
-        snr_dict = utils.inject_and_get_SNR(event)
+        snr_dict = utils.inject_and_get_SNR(event, f_min=20.0, f_sampling=4096.0, is_tidal=is_tidal)
         
         # Add the SNR to the complete list
         for key in list(all_snr_dict.keys()):
@@ -40,7 +39,7 @@ for pop_str in ["BBH", "BNS"]:
     for key in list(all_snr_dict.keys()):
         utils.CoBa_events_dict[pop_str][f"{key}_SNR"] = all_snr_dict[key]
         
-    # NOTE: Numpy arrays are not compatible with JSON, so call tolist() before saving
+    # numpy arrays are not compatible with JSON, so call tolist() before saving
     for key in list(utils.CoBa_events_dict[pop_str].keys()):
         utils.CoBa_events_dict[pop_str][key] = utils.CoBa_events_dict[pop_str][key].tolist()
         
