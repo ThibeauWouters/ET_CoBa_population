@@ -7,7 +7,7 @@ import json
 # Make bilby silent, otherwise will print for each injected signal
 bilby.core.utils.logger.setLevel("ERROR")
 
-for pop_str in ["BBH", "BNS"]:
+for pop_str in ["BBH"]: # , "BNS" -- NOTE: there was a bug which affected only BBH, so rerunning that now
     
     print(f"Now looping over the {pop_str} population...")
     
@@ -30,7 +30,11 @@ for pop_str in ["BBH", "BNS"]:
         event = utils.get_CoBa_event(pop_str, idx)
         event = utils.translate_CoBa_to_bilby(event)
         try: 
-            snr_dict = utils.inject_and_get_SNR(event, f_min=20.0, f_sampling=4096.0, is_tidal=is_tidal)
+            snr_dict = utils.inject_and_get_SNR(event, 
+                                                f_min=20.0, 
+                                                f_sampling=4096.0,
+                                                use_transverse_spins=False,
+                                                is_tidal=is_tidal)
         except Exception as e:
             # We had input domain error for some of them, at least expected for BBH idx=7374 in tqdm
             # FIXME: take some notes here on how often this happens in the end

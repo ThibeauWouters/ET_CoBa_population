@@ -1,5 +1,6 @@
 import os
 import copy
+import arviz
 import json
 import numpy as np 
 import matplotlib.pyplot as plt
@@ -53,7 +54,7 @@ with open(BNS_CATALOG_FILENAME, "r") as f:
     BNS_CATALOG = json.load(f)
 
 
-def make_snr_histograms(snr_cutoff: float,
+def make_snr_histograms(snr_cutoff_dict: dict,
                         verbose: bool = False) -> None:
     """
     Make a plot showing the SNR distribution for ET, CE and the combined network SNR.
@@ -67,6 +68,7 @@ def make_snr_histograms(snr_cutoff: float,
     catalogs_list = [BBH_CATALOG, BNS_CATALOG]
 
     for pop_str, catalog in zip(pop_str_list, catalogs_list):
+        snr_cutoff = snr_cutoff_dict[pop_str]
         print(f"Making SNR histogram for {pop_str} catalog SNR below {snr_cutoff} . . . ")
         
         # # For individual ET ifos SNRs:
@@ -104,35 +106,38 @@ def make_snr_histograms(snr_cutoff: float,
         plt.figure()
         hist_kwargs = {"bins": 100, 
                        "histtype": "step", 
-                       "density": True
+                       "density": True,
+                       "linewidth": 3
                     }
         plt.hist(et_snr[mask], label="ET", color = "blue", **hist_kwargs)
         plt.hist(ce_snr[mask], label="CE", color = "red", **hist_kwargs)
         plt.hist(network_snr[mask], label="Network", color = "purple", **hist_kwargs)
         
+        # Print median SNR and 90% quantile
+        med = np.median(network_snr[mask])
+        low, high = arviz.hdi(network_snr[mask], hdi_prob=0.9)
+        low = med - low
+        high = high - med
+        
+        print(f"Median SNR: {med:.2f} with 90% CI: [{low:.2f}, {high:.2f}]")
+        
         plt.legend()
         plt.title(f"{pop_str} (SNR below {snr_cutoff}, fraction {fraction_kept:.5f} kept)")
         
-        plt.savefig(f"./figures/SNR_histogram_{pop_str}.png")
-        plt.close()
+        name = f"./figures/SNR_histogram_{pop_str}.png"
         
-        # Also make a histogram of the masses
-        mass_1 = np.array(catalog["m1_source"])
-        mass_2 = np.array(catalog["m2_source"])
+        plt.xlabel("SNR")
+        plt.ylabel("density")
         
-        plt.figure()
-        plt.hist(mass_1[mask], label="Mass 1", color = "blue", **hist_kwargs)
-        plt.hist(mass_2[mask], label="Mass 2", color = "red", **hist_kwargs)
-        plt.legend()
-        # plt.title(f"{pop_str} (SNR below {snr_cutoff}, fraction {fraction_kept:.5f} kept)")
-        plt.savefig(f"./figures/mass_histogram_{pop_str}.png")
+        plt.savefig(name)
+        plt.savefig(name.replace(".png", ".pdf"))
         plt.close()
         
     print("DONE")
     
 def main():
-    # make_snr_histograms(snr_cutoff=100)
-    pass
+    snr_cutoff_dict = {"BBH": 600, "BNS": 150}
+    make_snr_histograms(snr_cutoff_dict)
     
 if __name__ == "__main__":
     main()

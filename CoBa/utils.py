@@ -55,6 +55,7 @@ CoBa_events_dict["BNS"]["chi2"] = CoBa_events_dict["BNS"]["chi2z"]
 # For the BNS keys, pad the length with an array filled with zeroes (no precession for BNS)
 for key in CoBa_events_dict["BNS"].keys():
     if len(CoBa_events_dict["BNS"][key]) < N_BNS_COBA:
+        print(f"Padding {key} in BNS catalog")
         CoBa_events_dict["BNS"][key] = np.zeros(N_BNS_COBA)
 print("Loading the CoBa catalogs... DONE")
 
@@ -120,17 +121,17 @@ def disable_transverse_spins(parameters: dict) -> dict:
     """
     parameters["chi1x"] = 0.0
     parameters["chi1y"] = 0.0
-    parameters["chi1z"] = parameters["chi1"]
-    
     parameters["chi2x"] = 0.0
     parameters["chi2y"] = 0.0
-    parameters["chi2z"] = parameters["chi2"]
     
     parameters["phiJL"] = 0.0
     parameters["phi12"] = 0.0
-    
+    parameters["thetaJN"] = 0.0
     parameters["tilt_1"] = 0.0
     parameters["tilt_2"] = 0.0
+    
+    parameters["chi1z"] = parameters["chi1"]
+    parameters["chi2z"] = parameters["chi2"]
     
     return parameters
 
@@ -161,8 +162,12 @@ def inject_and_get_SNR(parameters: dict,
 
     Args:
         parameters (dict): The parameters of the signal to be injected.
-        duration (float): Duration of the signal.
+        f_min (float): The minimum frequency of the signal.
+        f_sampling (float): The sampling frequency of the signal.
+        use_transverse_spins (bool): Whether or not to use transverse spins (PhenomPv2 vs PhenomD). Put to False for BBH.
     """
+    
+    # TODO: if time permits, then check if disable transverse spins is needed for BNS or if this is OK after adding padding
     
     # We can choose to force aligned spins, and if BNS (tidal) waveform, there is no precession
     if not use_transverse_spins or is_tidal:
