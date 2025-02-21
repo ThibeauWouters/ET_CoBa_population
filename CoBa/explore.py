@@ -1,3 +1,7 @@
+"""
+Simple script to load the CoBa catalogs (with the SNRs computed) and have a look at some SNR distributions as sanity checks.
+"""
+
 import os
 import copy
 import arviz
@@ -55,13 +59,15 @@ with open(BNS_CATALOG_FILENAME, "r") as f:
 
 
 def make_snr_histograms(snr_cutoff_dict: dict,
-                        verbose: bool = False) -> None:
+                        verbose: bool = False,
+                        detectable_snr: float = 13.85) -> None:
     """
     Make a plot showing the SNR distribution for ET, CE and the combined network SNR.
 
     Args:
         snr_cutoff (float): Only take events with an SNR below this value, to avoid outliers giving a large tail in the plot
         verbose (bool): Whether or not to plot a few extra things for debugging/checking.
+        detectable_snr (float): SNR above which the event is detectable by the network (default is 13.85: see arXiv:2102.07544v1)
     """
     # Start exploring the setup: load the SNR
     pop_str_list = ["BBH", "BNS"]
@@ -81,6 +87,14 @@ def make_snr_histograms(snr_cutoff_dict: dict,
         et_snr = np.array(catalog["ET_SNR"])
         ce_snr = np.array(catalog["CE_SNR"])
         network_snr = np.sqrt(et_snr ** 2 + ce_snr ** 2)
+        
+        if detectable_snr > 0:
+            print(f"Only events with SNR above {detectable_snr} are detectable by the network.")
+            detected = network_snr > detectable_snr
+            
+            et_snr = et_snr[detected]
+            ce_snr = ce_snr[detected]
+            network_snr = network_snr[detected]
         
         # # Show a couple of the highest SNR points
         if verbose:

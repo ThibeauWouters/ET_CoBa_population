@@ -7,6 +7,7 @@ import json
 # Make bilby silent, otherwise will print for each injected signal
 bilby.core.utils.logger.setLevel("ERROR")
 
+# TODO: rerun the 5Hz catalog for BNS as well -- might give problems with memory etc, first check BBH
 for pop_str in ["BBH"]: # , "BNS" -- NOTE: there was a bug which affected only BBH, so rerunning that now
     
     print(f"Now looping over the {pop_str} population...")
@@ -31,13 +32,12 @@ for pop_str in ["BBH"]: # , "BNS" -- NOTE: there was a bug which affected only B
         event = utils.translate_CoBa_to_bilby(event)
         try: 
             snr_dict = utils.inject_and_get_SNR(event, 
-                                                f_min=20.0, 
+                                                f_min=5.0, 
                                                 f_sampling=4096.0,
                                                 use_transverse_spins=False,
                                                 is_tidal=is_tidal)
         except Exception as e:
-            # We had input domain error for some of them, at least expected for BBH idx=7374 in tqdm
-            # FIXME: take some notes here on how often this happens in the end
+            # We had input domain error for some of them (around 5 -- seems due to very high chirp masses)
             print(f"Error for event {idx}: {e}")
             
             print(f"Now showing the event parameters")
@@ -59,7 +59,7 @@ for pop_str in ["BBH"]: # , "BNS" -- NOTE: there was a bug which affected only B
         utils.CoBa_events_dict[pop_str][key] = utils.CoBa_events_dict[pop_str][key].tolist()
         
     # Save it as JSON:
-    filename = f"CoBa_events_{pop_str}.json"
+    filename = f"CoBa_events_{pop_str}_5Hz.json"
     print(f"Saving the updated CoBa catalogue, with the SNRs, to {filename}")
     with open(filename, "w") as f:
         json.dump(utils.CoBa_events_dict[pop_str], f, indent = 4)
