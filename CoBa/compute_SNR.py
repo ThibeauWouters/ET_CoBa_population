@@ -8,7 +8,7 @@ import json
 bilby.core.utils.logger.setLevel("ERROR")
 
 # TODO: rerun the 5Hz catalog for BNS as well -- might give problems with memory etc, first check BBH
-for pop_str in ["BBH"]: # , "BNS" -- NOTE: there was a bug which affected only BBH, so rerunning that now
+for pop_str in ["BNS"]:
     
     print(f"Now looping over the {pop_str} population...")
     
