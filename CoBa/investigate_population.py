@@ -59,6 +59,8 @@ with open(BBH_CATALOG_5HZ_FILENAME, "r") as f:
 with open(BNS_CATALOG_FILENAME, "r") as f:
     BNS_CATALOG = json.load(f)
     
+int_to_str_dict = {0: "BBH", 1: "BNS"}
+    
 def make_dt_histogram(snr_cutoff: float = 8,
                       which_snr: str = 'network'):
     """
@@ -73,13 +75,12 @@ def make_dt_histogram(snr_cutoff: float = 8,
         for key in keys_of_interest:
             if i == 0:
                 my_catalogue[key] = np.array(catalog[key])
-                my_catalogue["type"] = np.zeros(len(catalog[key]))
             else:
                 # Append the BNS catalog to the BBH catalog
                 my_catalogue[key] = np.concatenate((my_catalogue[key], np.array(catalog[key])))
-                my_catalogue["type"] = np.concatenate((my_catalogue["type"], np.ones(len(catalog[key]))))
-
+    
     my_catalogue["network_SNR"] = np.sqrt(my_catalogue['ET_SNR']**2 + my_catalogue['CE_SNR']**2)
+    my_catalogue["type"] = np.concatenate((np.zeros(len(BBH_CATALOG['tcoal'])), np.ones(len(BNS_CATALOG['tcoal']))))
 
     # Sort the events based on the time of coalescence
     sorting = np.argsort(my_catalogue['tcoal'])
@@ -93,15 +94,30 @@ def make_dt_histogram(snr_cutoff: float = 8,
     print(len(mask))
 
     for key, value in my_catalogue.items():
-        print(key)
-        print(value.shape)
         my_catalogue[key] = value[mask]
         
     dt = np.diff(my_catalogue['tcoal'])
     my_catalogue['dt'] = dt * 86400 # convert to seconds
     
-    # Add dummy dt to account for different lengths
-    my_catalogue['dt'] = np.concatenate(([0], my_catalogue['dt']))
+    # # Add dummy dt to account for different lengths
+    # my_catalogue['dt'] = np.concatenate(([0], my_catalogue['dt']))
+    
+    dt_dict = {"BBH+BBH": [],
+               "BBH+BNS": [],
+               "BNS+BBH": [],
+               "BNS+BNS": []}
+    
+    # Iterate over the constructed events and check sort dt's based on type
+    for i in range(len(my_catalogue['type']) - 1):
+        this_event_type = my_catalogue['type'][i]
+        next_event_type = my_catalogue['type'][i+1]
+        
+        this_event_time = my_catalogue['tcoal'][i]
+        next_event_time = my_catalogue['tcoal'][i+1]
+        
+        dt = (next_event_time - this_event_time) * 86400 # convert to seconds
+        
+        dt_dict[f"{int_to_str_dict[this_event_type]}+{int_to_str_dict[next_event_type]}"].append(dt)
 
     # Check out for sanity checking:
     max_number = 20
@@ -122,24 +138,47 @@ def make_dt_histogram(snr_cutoff: float = 8,
         "linewidth": 2,
         "density": True
     }
-    plt.figure()
+    plt.figure(figsize = (12, 8))
     
-    # All events together
-    plt.hist(my_catalogue['dt'], color = "black", label = "All", **hist_kwargs)
+    # # All events together
+    # plt.hist(my_catalogue['dt'], color = "black", label = "All", **hist_kwargs)
     
-    # Only BBH
-    mask = my_catalogue['type'] == 0
-    plt.hist(my_catalogue['dt'][mask], color = "blue", label = "BBH", **hist_kwargs)
+    for key, col in zip(["BBH+BBH", "BBH+BNS", "BNS+BNS"], ["blue", "red", "green"]):
+        plt.hist(dt_dict[key], label = key, color = col, **hist_kwargs)
     
-    # Only BNS
-    mask = my_catalogue['type'] == 1
-    plt.hist(my_catalogue['dt'][mask], color = "red", label = "BNS", **hist_kwargs)
     plt.xlabel(r"$\Delta t$ [s]")
     plt.ylabel("Density")
     plt.title("Time between consecutive events")
     plt.legend()
     
     name = "./figures/dt_histogram.png"
+    plt.savefig(name)
+    plt.savefig(name.replace(".png", ".pdf"))
+    plt.close()
+    
+    
+    ###### TODO: make a bit better
+    # Iterate over the constructed events and check sort dt's based on type
+    bbh = my_catalogue['type'] == 0
+    dt = np.diff(my_catalogue['tcoal'][bbh])
+    dt = dt * 86400 # convert to seconds
+
+    # Make a histogram of the dt:
+    hist_kwargs = {
+        "bins": 100,
+        "histtype": "step",
+        "linewidth": 2,
+        "density": True
+    }
+    plt.figure(figsize = (12, 8))
+    plt.hist(dt, color = "black", **hist_kwargs)
+    
+    plt.xlabel(r"$\Delta t$ [s]")
+    plt.ylabel("Density")
+    plt.title("Time between consecutive events")
+    plt.legend()
+    
+    name = "./figures/dt_histogram_bbh_only.png"
     plt.savefig(name)
     plt.savefig(name.replace(".png", ".pdf"))
     plt.close()
