@@ -76,17 +76,41 @@ def rescale_time(tGPS: np.array, resample: bool = True):
     t_min, t_max = np.min(tGPS), np.max(tGPS)
 
     if resample:
+        np.random.seed(0)
         print(f"Note: we are going to sample our own GPS time since the CoBa ones are bad")
         tGPS_rescaled = np.random.uniform(t_start_2030, t_end_2030, len(tGPS))
-        tGPS_rescaled = np.sort(tGPS_rescaled)
     else:
         tGPS_rescaled = t_start_2030 + (tGPS - t_min) / (t_max - t_min) * (t_end_2030 - t_start_2030)
         
     return tGPS_rescaled
+
+# Build a catalogue which is sorted by coalescence time 
+my_catalogue = {}
+keys_of_interest = ['tGPS', 'ET_SNR', 'CE_SNR']
+
+for i, catalog in enumerate([BBH_CATALOG, BNS_CATALOG]):
+    for key in keys_of_interest:
+        if i == 0:
+            my_catalogue[key] = np.array(catalog[key])
+        else:
+            # Append the BNS catalog to the BBH catalog
+            my_catalogue[key] = np.concatenate((my_catalogue[key], np.array(catalog[key])))
+
+# Compute network SNR, and also save the type of event
+my_catalogue["network_SNR"] = np.sqrt(my_catalogue['ET_SNR']**2 + my_catalogue['CE_SNR']**2)
+my_catalogue["type"] = np.concatenate((np.zeros(len(BBH_CATALOG["tGPS"])), np.ones(len(BNS_CATALOG["tGPS"]))))
+
+# Fix the tGPS to be in 1 year, not 10 years (typo in the CoBa catalogue?)
+my_catalogue['tGPS'] = rescale_time(my_catalogue['tGPS'])
+# Now sort based on tGPS
+idx = np.argsort(my_catalogue['tGPS'])
+for key, value in my_catalogue.items():
+    my_catalogue[key] = value[idx]
     
-def make_dt_histogram(snr_cutoff: float = 8,
+def make_dt_histogram(snr_cutoff: float = 8.0,
                       which_snr: str = 'network',
-                      max_dt: float = 0.5):
+                      max_dt: float = 2.0,
+                      check_exponential: bool = False):
     """
     Make a histogram of the time between consecutive events in the CoBa catalogs.
     
@@ -95,61 +119,16 @@ def make_dt_histogram(snr_cutoff: float = 8,
         which_snr: str, the SNR to use ('network' or 'ET' or 'CE')
         max_dt: float, the maximum difference in time to consider for the plot
     """
-    # Note: tcoal is better, since tGPS is rounded to seconds and not so informative
-    keys_of_interest = ['tGPS', 'tcoal', 'ET_SNR', 'CE_SNR']
-    time_key = 'tGPS'
 
-    # Build a catalogue which is sorted by coalescence time 
-    my_catalogue = {}
-    for i, catalog in enumerate([BBH_CATALOG, BNS_CATALOG]):
-        for key in keys_of_interest:
-            if i == 0:
-                my_catalogue[key] = np.array(catalog[key])
-            else:
-                # Append the BNS catalog to the BBH catalog
-                my_catalogue[key] = np.concatenate((my_catalogue[key], np.array(catalog[key])))
-    
-    my_catalogue["network_SNR"] = np.sqrt(my_catalogue['ET_SNR']**2 + my_catalogue['CE_SNR']**2)
-    my_catalogue["type"] = np.concatenate((np.zeros(len(BBH_CATALOG[time_key])), np.ones(len(BNS_CATALOG[time_key]))))
-
-    # Sort the events based on the time of coalescence
-    sorting = np.argsort(my_catalogue[time_key])
-    for key, value in my_catalogue.items():
-        my_catalogue[key] = value[sorting]
-
+    # Only keep above a certain SNR cutoff
     mask = my_catalogue[f"{which_snr}_SNR"] > snr_cutoff
     kept = np.sum(mask) / len(mask)
-    print(f"Keeping {kept:.5f} of the events with {which_snr} > {snr_cutoff}")
+    print(f"Keeping {kept:.5f} of the events (number: {np.sum(mask)}) with {which_snr} > {snr_cutoff}")
     
     for i, (key, value) in enumerate(my_catalogue.items()):
         my_catalogue[key] = value[mask]
-        if i == 0:
-            print("Length after the cut:")
-            print(len(my_catalogue[key]))
         
-    # Print the SNR range
-    print(f"SNR range: {np.min(my_catalogue[f'{which_snr}_SNR']):.2f} - {np.max(my_catalogue[f'{which_snr}_SNR']):.2f}")
-    
-    # Fix the tGPS to be in 1 year, not 10 years
-    my_catalogue['tGPS'] = rescale_time(my_catalogue['tGPS'])
-        
-    dt = np.diff(my_catalogue[time_key])
-    
-    tGPS_min = np.min(my_catalogue["tGPS"])
-    tGPS_max = np.max(my_catalogue["tGPS"])
-    
-    time_min = Time(tGPS_min, format='gps')
-    time_max = Time(tGPS_max, format='gps')
-    
-    print(f"First time: {time_min.iso}")
-    print(f"Last time: {time_max.iso}")
-
-    if time_key == "tcoal":
-        print(f"Converting tcoal to seconds")
-        dt = dt * 86400
-    
-    my_catalogue['dt'] = dt
-    
+    # Loop and consider only the events with SNR above the cutoff
     dt_dict = {"BBH+BBH": [],
                "BBH+BNS": [],
                "BNS+BBH": [],
@@ -160,19 +139,32 @@ def make_dt_histogram(snr_cutoff: float = 8,
         this_event_type = my_catalogue['type'][i]
         next_event_type = my_catalogue['type'][i+1]
         
-        this_event_time = my_catalogue[time_key][i]
-        next_event_time = my_catalogue[time_key][i+1]
+        this_event_time = my_catalogue["tGPS"][i]
+        next_event_time = my_catalogue["tGPS"][i+1]
         
         dt = next_event_time - this_event_time
-        if time_key == "tcoal":
-            print(f"Converting tcoal to seconds")
-            dt = dt * 86400 # convert to seconds
-        
         dt_dict[f"{int_to_str_dict[this_event_type]}+{int_to_str_dict[next_event_type]}"].append(dt)
 
-    any_negative = np.any(my_catalogue['dt'] < 0)
-    print("Any negative dt in here?")
-    print(any_negative)
+    # Make a plot (bar chart) of the number of populations
+    plt.figure(figsize = (12, 8))
+    
+    x = [0, 1, 2, 3]
+    keys = ["BBH+BBH", "BBH+BNS", "BBH+BNS", "BNS+BNS"]
+    y = [len(dt_dict[k]) for k in keys]
+    
+    # Sort based on the number:
+    sort_idx = np.argsort(y)[::-1]
+    y = np.array(y)[sort_idx]
+    keys = np.array(keys)[sort_idx]
+    
+    plt.bar(x, y, color = "blue")
+    plt.xticks(x, keys)
+    plt.ylabel("Number of consecutive events type")
+    
+    name = "./figures/overlaps_population_histogram.png"
+    plt.savefig(name)
+    plt.savefig(name.replace(".png", ".pdf"))
+    plt.close()
 
     # Make a histogram of the dt:
     hist_kwargs = {
@@ -183,25 +175,22 @@ def make_dt_histogram(snr_cutoff: float = 8,
     }
     plt.figure(figsize = (12, 8))
     
-    for key, col in zip(["BBH+BBH", "BBH+BNS", "BNS+BNS"], ["blue", "red", "green"]):
-        print(f"Checking {key} . . .")
+    for key, col in zip(["BBH+BBH", "BBH+BNS", "BNS+BBH", "BNS+BNS"], ["blue", "red", "orange", "green"]):
+        # Get the current set of samples
         samples = np.array(dt_dict[key])
         
-        # Estimate lambda (rate parameter)
-        lambda_hat = 1 / np.mean(samples)
-        print(f"Estimated lambda: {lambda_hat:.4f}")
-        
-        # Perform Kolmogorov-Smirnov test
-        d, p_value = stats.kstest(samples, 'expon', args=(0, 1/lambda_hat))
-        print(f"KS test statistic: {d:.4f}, p-value: {p_value:.4f}")
+        # Estimate exponential distribution parameters and perform Kolmogorov-Smirnov test
+        if check_exponential:
+            lambda_hat = 1 / np.mean(samples)
+            d, p_value = stats.kstest(samples, 'expon', args=(0, 1/lambda_hat))
+            print(f"Estimated lambda: {lambda_hat:.4f}")
+            print(f"KS test statistic: {d:.4f}, p-value: {p_value:.4f}")
         
         # Make the plot but mask up to given dt
         mask = np.array(samples) < max_dt
         kept = np.sum(mask) / len(mask)
-        print(f"{kept*100:.2f}% of the events have dt below {max_dt}")
+        print(f"{np.sum(mask)} of {key} events ({kept*100:.2f}%): below {max_dt}")
         plt.hist(samples[mask], label = key, color = col, **hist_kwargs)
-        # x = np.linspace(0, np.max(samples), 1_000)
-        # plt.plot(x, lambda_hat * np.exp(-lambda_hat * x), color = "red", linestyle = "--", lw=2, label='Fitted Exponential')
     
     plt.xlabel(r"$\Delta t$ [s]")
     plt.ylabel("Density")
@@ -215,19 +204,16 @@ def make_dt_histogram(snr_cutoff: float = 8,
     
     ### Considering only BBH events:
     bbh = my_catalogue['type'] == 0
-    dt = np.diff(my_catalogue[time_key][bbh])
-    if time_key == "tcoal":
-        dt = dt * 86400 # convert to seconds
+    dt = np.diff(my_catalogue["tGPS"][bbh])
     
     # Estimate lambda (rate parameter)
-    print(f"BBH only checking now")
     samples = dt
-    lambda_hat = 1 / np.mean(samples)
-    print(f"Estimated lambda: {lambda_hat:.4f}")
     
-    # Perform Kolmogorov-Smirnov test
-    d, p_value = stats.kstest(samples, 'expon', args=(0, 1/lambda_hat))
-    print(f"KS test statistic: {d:.4f}, p-value: {p_value:.4f}")
+    if check_exponential:
+        lambda_hat = 1 / np.mean(samples)
+        d, p_value = stats.kstest(samples, 'expon', args=(0, 1/lambda_hat))
+        print(f"Estimated lambda: {lambda_hat:.4f}")
+        print(f"KS test statistic: {d:.4f}, p-value: {p_value:.4f}")
 
     # Make a histogram of the dt:
     hist_kwargs = {
@@ -242,7 +228,6 @@ def make_dt_histogram(snr_cutoff: float = 8,
     plt.xlabel(r"$\Delta t$ [s]")
     plt.ylabel("Density")
     plt.title("Time between consecutive events")
-    plt.legend()
     
     name = "./figures/dt_histogram_bbh_only.png"
     plt.savefig(name)
@@ -251,19 +236,15 @@ def make_dt_histogram(snr_cutoff: float = 8,
     
     ### Considering only BNS events:
     bns = my_catalogue['type'] == 1
-    dt = np.diff(my_catalogue[time_key][bns])
-    if time_key == "tcoal":
-        dt = dt * 86400 # convert to seconds
-    
+    dt = np.diff(my_catalogue["tGPS"][bns])
     # Estimate lambda (rate parameter)
-    print(f"BNS only checking now")
     samples = dt
-    lambda_hat = 1 / np.mean(samples)
-    print(f"Estimated lambda: {lambda_hat:.4f}")
     
-    # Perform Kolmogorov-Smirnov test
-    d, p_value = stats.kstest(samples, 'expon', args=(0, 1/lambda_hat))
-    print(f"KS test statistic: {d:.4f}, p-value: {p_value:.4f}")
+    if check_exponential:
+        lambda_hat = 1 / np.mean(samples)
+        d, p_value = stats.kstest(samples, 'expon', args=(0, 1/lambda_hat))
+        print(f"Estimated lambda: {lambda_hat:.4f}")
+        print(f"KS test statistic: {d:.4f}, p-value: {p_value:.4f}")
 
     # Make a histogram of the dt:
     hist_kwargs = {
@@ -278,15 +259,22 @@ def make_dt_histogram(snr_cutoff: float = 8,
     plt.xlabel(r"$\Delta t$ [s]")
     plt.ylabel("Density")
     plt.title("Time between consecutive events")
-    plt.legend()
     
     name = "./figures/dt_histogram_bns_only.png"
     plt.savefig(name)
     plt.savefig(name.replace(".png", ".pdf"))
     plt.close()
     
+def get_background():
+    """
+    Idea is to check how many signals below threshold are in the background.
+    """
+    
+    print(list(my_catalogue.keys()))
+    
 def main():
     make_dt_histogram()
+    get_background()
     
 if __name__ == "__main__":
     main()
