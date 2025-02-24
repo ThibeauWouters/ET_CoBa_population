@@ -61,6 +61,10 @@ with open(BBH_CATALOG_5HZ_FILENAME, "r") as f:
 with open(BNS_CATALOG_FILENAME, "r") as f:
     BNS_CATALOG = json.load(f)
 
+# Print the number of events in each catalog
+key = "ET_SNR"
+print(f"Number of BBH events: {len(BBH_CATALOG[key])}")
+print(f"Number of BNS events: {len(BNS_CATALOG[key])}")
 
 def plot_snr_comparison(which: str = "network",
                         max_snr: float = 200):
