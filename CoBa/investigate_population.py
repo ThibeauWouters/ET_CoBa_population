@@ -117,7 +117,8 @@ def make_dt_histogram(snr_cutoff: float = 8.0,
     Args:
         snr_cutoff: float, the SNR cutoff to use
         which_snr: str, the SNR to use ('network' or 'ET' or 'CE')
-        max_dt: float, the maximum difference in time to consider for the plot
+        max_dt: float, the maximum difference in time to consider for the plot (the "dangerous" region)
+        check_exponential: Estimate and print the exponential distribution parameters and p-value of KS test
     """
 
     # Only keep above a certain SNR cutoff
@@ -127,6 +128,22 @@ def make_dt_histogram(snr_cutoff: float = 8.0,
     
     for i, (key, value) in enumerate(my_catalogue.items()):
         my_catalogue[key] = value[mask]
+        
+    # Get differences in time without taking into account different source types
+    dt = np.diff(my_catalogue["tGPS"])
+    print(dt)
+    
+    print(f"Any negative dt? {np.any(dt < 0)}")
+    
+    triples_counter = 0
+    for i in range(len(dt) - 1):
+        this_dt = dt[i]
+        next_dt = dt[i+1]
+        
+        if this_dt < max_dt and next_dt < max_dt:
+            triples_counter = 0
+    
+    print(f"We have {triples_counter} events with triple overlaps with dt < {max_dt}")
         
     # Loop and consider only the events with SNR above the cutoff
     dt_dict = {"BBH+BBH": [],
@@ -149,7 +166,7 @@ def make_dt_histogram(snr_cutoff: float = 8.0,
     plt.figure(figsize = (12, 8))
     
     x = [0, 1, 2, 3]
-    keys = ["BBH+BBH", "BBH+BNS", "BBH+BNS", "BNS+BNS"]
+    keys = ["BBH+BBH", "BBH+BNS", "BNS+BBH", "BNS+BNS"]
     y = [len(dt_dict[k]) for k in keys]
     
     # Sort based on the number:
@@ -162,6 +179,28 @@ def make_dt_histogram(snr_cutoff: float = 8.0,
     plt.ylabel("Number of consecutive events type")
     
     name = "./figures/overlaps_population_histogram.png"
+    plt.savefig(name)
+    plt.savefig(name.replace(".png", ".pdf"))
+    plt.close()
+    
+    # Same figure but now apply the max dt cut
+    plt.figure(figsize = (12, 8))
+    x = [0, 1, 2, 3]
+    keys = ["BBH+BBH", "BBH+BNS", "BNS+BBH", "BNS+BNS"]
+    dt_dict_cut = {}
+    for key, value in dt_dict.items():
+        dt_dict_cut[key] = [dt for dt in value if dt < max_dt]
+    y = [len(dt_dict_cut[k]) for k in keys]
+    
+    sort_idx = np.argsort(y)[::-1]
+    y = np.array(y)[sort_idx]
+    keys = np.array(keys)[sort_idx]
+    
+    plt.bar(x, y, color = "blue")
+    plt.xticks(x, keys)
+    plt.ylabel("Number of consecutive events type")
+    
+    name = "./figures/overlaps_population_histogram_dt_cut.png"
     plt.savefig(name)
     plt.savefig(name.replace(".png", ".pdf"))
     plt.close()
@@ -265,16 +304,8 @@ def make_dt_histogram(snr_cutoff: float = 8.0,
     plt.savefig(name.replace(".png", ".pdf"))
     plt.close()
     
-def get_background():
-    """
-    Idea is to check how many signals below threshold are in the background.
-    """
-    
-    print(list(my_catalogue.keys()))
-    
 def main():
     make_dt_histogram()
-    get_background()
     
 if __name__ == "__main__":
     main()
