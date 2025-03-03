@@ -5,6 +5,7 @@ Time to check out how the overlapping signals population looks like (difference 
 import os
 import json
 import numpy as np 
+np.random.seed(0) # fix the random seed so that the resampled catalogue tGPS is always the same
 import matplotlib.pyplot as plt
 import corner
 import scipy.stats as stats
@@ -76,7 +77,6 @@ def rescale_time(tGPS: np.array, resample: bool = True):
     t_min, t_max = np.min(tGPS), np.max(tGPS)
 
     if resample:
-        np.random.seed(0)
         print(f"Note: we are going to sample our own GPS time since the CoBa ones are bad")
         tGPS_rescaled = np.random.uniform(t_start_2030, t_end_2030, len(tGPS))
     else:
@@ -86,10 +86,12 @@ def rescale_time(tGPS: np.array, resample: bool = True):
 
 # Build a catalogue which is sorted by coalescence time 
 my_catalogue = {}
-keys_of_interest = ['tGPS', 'ET_SNR', 'CE_SNR']
+BBH_CATALOG["Lambda1"] = np.zeros_like(BBH_CATALOG["Mc"])
+BBH_CATALOG["Lambda2"] = np.zeros_like(BBH_CATALOG["Mc"])
 
 for i, catalog in enumerate([BBH_CATALOG, BNS_CATALOG]):
-    for key in keys_of_interest:
+    print(f"Catalog keys: {catalog.keys()}")
+    for key in catalog.keys():
         if i == 0:
             my_catalogue[key] = np.array(catalog[key])
         else:
@@ -107,10 +109,27 @@ idx = np.argsort(my_catalogue['tGPS'])
 for key, value in my_catalogue.items():
     my_catalogue[key] = value[idx]
     
-def make_dt_histogram(snr_cutoff: float = 8.0,
+print(f"Showing my catalogue:")
+print(my_catalogue.keys())
+print(my_catalogue)
+
+LIMIT_TO_ONE_DAY = True
+
+if LIMIT_TO_ONE_DAY:
+    print("Limiting to one day of data . . .")
+    tGPS_min = np.min(my_catalogue['tGPS'])
+    tGP_max = tGPS_min + 86_400 # 1 day in seconds
+    
+    mask = (my_catalogue['tGPS'] >= tGPS_min) & (my_catalogue['tGPS'] <= tGP_max)
+
+    for key, value in my_catalogue.items():
+        my_catalogue[key] = value[mask]
+    
+def make_dt_histogram(snr_cutoff: float = 0.0,
                       which_snr: str = 'network',
                       max_dt: float = 2.0,
-                      check_exponential: bool = False):
+                      check_exponential: bool = False,
+                      dump_injections: bool = True):
     """
     Make a histogram of the time between consecutive events in the CoBa catalogs.
     
@@ -128,6 +147,10 @@ def make_dt_histogram(snr_cutoff: float = 8.0,
     
     for i, (key, value) in enumerate(my_catalogue.items()):
         my_catalogue[key] = value[mask]
+        
+    # Print number of BBH and BNS events
+    print(f"Number of BBH: {np.sum(my_catalogue['type'] == 0)}")
+    print(f"Number of BNS: {np.sum(my_catalogue['type'] == 1)}")
         
     # Get differences in time without taking into account different source types
     dt = np.diff(my_catalogue["tGPS"])
@@ -304,8 +327,84 @@ def make_dt_histogram(snr_cutoff: float = 8.0,
     plt.savefig(name.replace(".png", ".pdf"))
     plt.close()
     
+    # Dump the final set of injections to a JSON file:
+    if dump_injections:
+        filename = os.path.join(COBA_LOCATION, "CoBa_events_one_day.json")
+        print(f"Dumping one day of data to {filename}")
+        
+        # Make all np arrays into lists for JSON compatibility:
+        for key, value in my_catalogue.items():
+            my_catalogue[key] = value.tolist()
+        
+        with open(filename, "w") as f:
+            json.dump(my_catalogue, f)
+    
+def get_one_day(number_of_random_seeds: int = 1,
+                network_snr_threshold: float = 12,
+                dump_injections: bool = False):
+    """Get the population properties for a single day of observance of ET and CE"""
+    
+    print(f"Creating the population to analyze for 1 day of ET and CE observance . . . ")
+    
+    for seed in range(number_of_random_seeds):
+        
+        # Set the random seed
+        print(f" === Random seed {seed} ===")
+        np.random.seed(seed)
+        
+        # Build a catalogue which is sorted by coalescence time but with all the keys
+        one_day = {}
+
+        for i, catalog in enumerate([BBH_CATALOG, BNS_CATALOG]):
+            for key in list(BBH_CATALOG.keys()):
+                if i == 0:
+                    one_day[key] = np.array(catalog[key])
+                else:
+                    # Append the BNS catalog to the BBH catalog
+                    one_day[key] = np.concatenate((one_day[key], np.array(catalog[key])))
+
+        # Compute network SNR, and also save the type of event
+        one_day["network_SNR"] = np.sqrt(one_day['ET_SNR']**2 + one_day['CE_SNR']**2)
+        one_day["type"] = np.concatenate((np.zeros(len(BBH_CATALOG["tGPS"])), np.ones(len(BNS_CATALOG["tGPS"]))))
+
+        # Fix the tGPS to be in 1 year, not 10 years (typo in the CoBa catalogue?)
+        one_day['tGPS'] = rescale_time(one_day['tGPS'])
+        
+        # Now sort based on tGPS
+        idx = np.argsort(one_day['tGPS'])
+        for key, value in one_day.items():
+            one_day[key] = value[idx]
+            
+        # Limit to one day:
+        tGPS_start = np.min(one_day['tGPS'])
+        tGPS_end = tGPS_start + 86_400 # 1 day in seconds
+        
+        mask = (one_day['tGPS'] >= tGPS_start) & (one_day['tGPS'] <= tGPS_end)
+        
+        for key, value in one_day.items():
+            one_day[key] = value[mask]
+            
+        print(f"Number of events with SNR above {network_snr_threshold} in 1 day of ET-CE: {len(one_day['tGPS'])}")
+        print(f"Number of BBH: {np.sum(one_day['type'] == 0)}")
+        print(f"Number of BNS: {np.sum(one_day['type'] == 1)}")
+        print("   ")
+        
+    # Dump the final set of injections to a JSON file:
+    if dump_injections:
+        filename = os.path.join(COBA_LOCATION, "CoBa_events_one_day.json")
+        print(f"Dumping one day of data to {filename}")
+        
+        # Make all np arrays into lists for JSON compatibility:
+        for key, value in one_day.items():
+            one_day[key] = value.tolist()
+        
+        with open(filename, "w") as f:
+            json.dump(one_day, f)
+            
+    
 def main():
-    make_dt_histogram()
+    make_dt_histogram(dump_injections = True)
+    # get_one_day(dump_injections = True)
     
 if __name__ == "__main__":
     main()
